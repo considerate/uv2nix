@@ -1,15 +1,9 @@
 {
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs";
+    mkflake.url = "github:jonascarpay/mkflake";
   };
   outputs = inputs:
-    let
-      forSystem = f: system: builtins.mapAttrs (_: value: { ${system} = value; }) (f system);
-      forSystems = f: systems:
-        builtins.foldl'
-          (a: b: a // b)
-          (builtins.map (forSystem f) systems);
-    in
     let
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       topLevel = {
@@ -20,10 +14,17 @@
       perSystem = system:
         let
           pkgs = import inputs.nixpkgs { inherit system; };
+          uv2nix = inputs.self.lib.uv2nixFor { inherit pkgs; };
         in
         {
-          packages = { };
+          packages = {
+            example = uv2nix.uv2nix {
+              src = ./examples/init;
+            };
+          };
         };
     in
-    forSystems perSystem systems // topLevel;
+    inputs.mkflake.lib.mkflake {
+      inherit perSystem topLevel systems;
+    };
 }
