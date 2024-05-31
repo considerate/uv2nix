@@ -121,7 +121,7 @@ let
       };
       options.package = lib.mkOption {
         type = lib.types.package;
-        default = build-package { inherit python; } config;
+        default = python.pkgs.${config.name};
       };
     };
   lockedDistributions = { uvLock }:
@@ -152,7 +152,7 @@ let
         ({ config, ... }:
           let
             allOverlays = [
-              (final: prev: lib.mapAttrs (_: d: d.package) config.distributions)
+              (final: prev: lib.mapAttrs (_: d: build-package { inherit python; } d) config.distributions)
             ] ++ overlays;
             py = python.override {
               packageOverrides = lib.foldr lib.composeExtensions (_final: _prev: { }) allOverlays;
