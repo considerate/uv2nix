@@ -1,4 +1,14 @@
-{ pkgs, lib ? pkgs.lib, pypa }:
+let
+  lock = builtins.fromJSON (builtins.readFile ./flake.lock);
+  pyproject-nix-src = builtins.fetchTarball {
+    url = lock.nodes.pyproject-nix.locked.url or "https://github.com/nix-community/pyproject.nix/archive/${lock.nodes.pyproject-nix.locked.rev}.tar.gz";
+    sha256 = lock.nodes.pyproject-nix.locked.narHash;
+  };
+in
+{ pkgs
+, lib ? pkgs.lib
+, pypa ? (import pyproject-nix-src { inherit lib; }).lib.pypa
+}:
 let
   build-package = { python }: { name, version, src, format, dependencies, ... }:
     python.pkgs.buildPythonPackage {
