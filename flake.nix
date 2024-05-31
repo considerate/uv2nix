@@ -31,6 +31,25 @@
               };
               edifice = uv2nix.uv2nix {
                 src = ./examples/edifice;
+                overlays = [
+                  (final: prev: {
+                    pyedifice = prev.pyedifice.overrideAttrs (old: {
+                      nativeBuildInputs = old.nativeBuildInputs ++ [
+                        final.poetry-core
+                      ];
+                    });
+                    qasync = prev.qasync.overrideAttrs (old: {
+                      nativeBuildInputs = old.nativeBuildInputs ++ [
+                        final.poetry-core
+                      ];
+                    });
+                    typing-extensions = prev.typing-extensions.overrideAttrs (old: {
+                      nativeBuildInputs = old.nativeBuildInputs ++ [
+                        final.flit-core
+                      ];
+                    });
+                  })
+                ];
               };
             };
           };
