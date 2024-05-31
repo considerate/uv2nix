@@ -1,25 +1,33 @@
-{ pkgs, lib ? pkgs.lib }:
+{ pkgs, lib ? pkgs.lib, pypa }:
 let
+  build-package = { python }: { name, version, src, format, ... }:
+    python.pkgs.buildPythonPackage {
+      pname = name;
+      version = version;
+      src = src;
+      format = format;
+    };
+
   sdistModule = { config, ... }: {
-    options.size = lib.mkOption {
-      type = lib.types.int;
+    options.url = lib.mkOption {
+      type = lib.types.str;
     };
     options.hash = lib.mkOption {
       type = lib.types.str;
     };
-    options.url = lib.mkOption {
-      type = lib.types.str;
+    options.size = lib.mkOption {
+      type = lib.types.int;
     };
   };
   wheelModule = { config, ... }: {
-    options.size = lib.mkOption {
-      type = lib.types.int;
+    options.url = lib.mkOption {
+      type = lib.types.str;
     };
     options.hash = lib.mkOption {
       type = lib.types.str;
     };
-    options.url = lib.mkOption {
-      type = lib.types.str;
+    options.size = lib.mkOption {
+      type = lib.types.int;
     };
   };
   dependencyModule = { config, ... }: {
@@ -33,48 +41,100 @@ let
       type = lib.types.str;
     };
   };
-  distributionModule = { preferWheels, pkgs, python }: { config, ... }: {
-    options.src = lib.mkOption {
-      # FIXME: define this using the other options
-      type = lib.types.nullOr lib.types.path;
-      default = null;
+  distributionModule = { preferWheels, pkgs, python }: { config, ... }:
+    let
+      # Only use wheels matching current python version and system architechture
+      # https://github.com/nix-community/poetry2nix/blob/0a592572706db14e49202892318d3812061340a0/mk-poetry-dep.nix#L29
+      compatible-wheels =
+        let
+          wheelFilesByFileName = lib.listToAttrs (map (fileEntry: lib.nameValuePair fileEntry.url fileEntry) config.wheels);
+          compatible = pypa.selectWheels python.stdenv.targetPlatform python (map (fileEntry: pypa.parseWheelFileName fileEntry.url) config.wheels);
+        in
+        map (wheel: wheelFilesByFileName.${wheel.filename}) compatible;
+      fetch-sdist = { url, hash, size }: builtins.fetchurl {
+        inherit url;
+        sha256 = hash;
+      };
+      fetch-wheel = { url, hash, size }: builtins.fetchurl {
+        inherit url;
+        sha256 = hash;
+      };
+      useWheel = config.preferWheel || config.sdist == null;
+      src-format =
+        if useWheel && builtins.length config.compatible-wheels > 0
+        then { src = fetch-wheel (builtins.head config.compatible-wheels); format = "wheel"; }
+        else if config.sdist != null
+        then { src = fetch-sdist config.sdist; format = "pyproject"; }
+        else { src = null; format = "pyproject"; }
+      ;
+      inherit (src-format) src format;
+    in
+
+    {
+      options.name = lib.mkOption {
+        type = lib.types.str;
+      };
+      options.version = lib.mkOption {
+        type = lib.types.str;
+      };
+      options.src = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = src;
+      };
+      options.source = lib.mkOption {
+        type = lib.types.str;
+      };
+      options.format = lib.mkOption {
+        type = lib.types.str;
+        default = format;
+      };
+      options.compatible-wheels = lib.mkOption {
+        type = lib.types.listOf (lib.types.submodule wheelModule);
+        default = compatible-wheels;
+      };
+      options.preferWheel = lib.mkOption {
+        type = lib.types.bool;
+        default = preferWheels;
+      };
+      options.dependencies = lib.mkOption {
+        type = lib.types.listOf (lib.types.submodule dependencyModule);
+        default = [ ];
+      };
+      options.sdist = lib.mkOption {
+        type = lib.types.nullOr (lib.types.submodule sdistModule);
+        default = null;
+      };
+      options.wheels = lib.mkOption {
+        type = lib.types.listOf (lib.types.submodule wheelModule);
+        default = [ ];
+      };
+      options.package = lib.mkOption {
+        type = lib.types.package;
+        default = build-package { inherit python; } config;
+      };
     };
-    options.source = lib.mkOption {
-      type = lib.types.str;
+  lockedDistributions = { uvLock }:
+    {
+      config.distributions = builtins.listToAttrs (map
+        (d: {
+          name = d.name;
+          value =
+            if d ? wheel then
+              builtins.removeAttrs d [ "wheel" ] // { wheels = d.wheel; }
+            else d;
+        })
+        uvLock.distribution
+      );
     };
-    options.version = lib.mkOption {
-      type = lib.types.str;
-    };
-    options.preferWheel = lib.mkOption {
-      type = lib.types.bool;
-      default = preferWheels;
-    };
-    options.dependencies = lib.mkOption {
-      type = lib.types.listOf (lib.types.submodule dependencyModule);
-      default = [ ];
-    };
-    options.name = lib.mkOption {
-      type = lib.types.str;
-    };
-    options.sdist = lib.mkOption {
-      type = lib.types.nullOr (lib.types.submodule sdistModule);
-      default = null;
-    };
-    options.wheel = lib.mkOption {
-      type = lib.types.listOf (lib.types.submodule wheelModule);
-      default = null;
-    };
-  };
-  lockedDistributions = { uvLock }: {
-    config.distributions = builtins.listToAttrs (map (d: { name = d.name; value = d; }) uvLock.distribution);
-  };
   uv2nix =
     { src
     , uvLockFile ? src + "/uv.lock"
     , uvLock ? builtins.fromTOML (builtins.readFile uvLockFile)
-    , extraModules ? [ (lockedDistributions { inherit uvLock; }) ]
-    }: lib.evalModules {
-      modules = [
+    , useLock ? true
+    , extraModules ? [ ]
+    }:
+    let
+      baseModules = [
         { _module.args.pkgs = pkgs; }
         ({ config, ... }: {
           options.python = lib.mkOption {
@@ -93,7 +153,14 @@ let
             default = { };
           };
         })
-      ] ++ extraModules;
+      ];
+      modules = baseModules
+        ++ lib.optional useLock (lockedDistributions { inherit uvLock; })
+        ++ extraModules
+      ;
+    in
+    lib.evalModules {
+      inherit modules;
     };
 in
 {
