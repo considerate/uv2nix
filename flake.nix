@@ -18,8 +18,13 @@
         in
         {
           packages = {
-            example = uv2nix.uv2nix {
-              src = ./examples/init;
+            examples = {
+              init = uv2nix.uv2nix {
+                src = ./examples/init;
+              };
+              edifice = uv2nix.uv2nix {
+                src = ./examples/edifice;
+              };
             };
           };
         };
