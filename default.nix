@@ -141,7 +141,7 @@ let
       );
     };
   uv2nix =
-    { src
+    { src ? null
     , uvLockFile ? src + "/uv.lock"
     , uvLock ? builtins.fromTOML (builtins.readFile uvLockFile)
     , useLock ? true
@@ -149,45 +149,46 @@ let
     , overlays ? [ ]
     , python ? pkgs.python3
     }:
-    let
-      baseModules = [
-        { _module.args.pkgs = pkgs; }
-        ({ config, ... }:
-          let
-            allOverlays = [
-              (final: prev: lib.mapAttrs (_: d: build-package { inherit python; } d) config.distributions)
-            ] ++ overlays;
-            py = python.override {
-              packageOverrides = lib.foldr lib.composeExtensions (_final: _prev: { }) allOverlays;
-              self = py;
-            };
-          in
-          {
-            options.python = lib.mkOption {
-              type = lib.types.package;
-              default = py;
-            };
-            options.preferWheels = lib.mkOption {
-              type = lib.types.bool;
-              default = false;
-            };
-            options.distributions = lib.mkOption {
-              type = lib.types.attrsOf (lib.types.submodule (distributionModule {
-                inherit pkgs;
-                inherit (config) preferWheels python;
-              }));
-              default = { };
-            };
-          })
-      ];
-      allModules = baseModules
-        ++ lib.optional useLock (lockedDistributions { inherit uvLock; })
-        ++ modules
-      ;
-    in
-    lib.evalModules {
-      modules = allModules;
-    };
+      assert useLock -> src != null;
+      let
+        baseModules = [
+          { _module.args.pkgs = pkgs; }
+          ({ config, ... }:
+            let
+              allOverlays = [
+                (final: prev: lib.mapAttrs (_: d: build-package { inherit python; } d) config.distributions)
+              ] ++ overlays;
+              py = python.override {
+                packageOverrides = lib.foldr lib.composeExtensions (_final: _prev: { }) allOverlays;
+                self = py;
+              };
+            in
+            {
+              options.python = lib.mkOption {
+                type = lib.types.package;
+                default = py;
+              };
+              options.preferWheels = lib.mkOption {
+                type = lib.types.bool;
+                default = false;
+              };
+              options.distributions = lib.mkOption {
+                type = lib.types.attrsOf (lib.types.submodule (distributionModule {
+                  inherit pkgs;
+                  inherit (config) preferWheels python;
+                }));
+                default = { };
+              };
+            })
+        ];
+        allModules = baseModules
+          ++ lib.optional useLock (lockedDistributions { inherit uvLock; })
+          ++ modules
+        ;
+      in
+      lib.evalModules {
+        modules = allModules;
+      };
 in
 {
   inherit lockedDistributions uv2nix;

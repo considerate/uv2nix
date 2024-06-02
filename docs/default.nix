@@ -1,7 +1,6 @@
 { uv2nix, buildPackages, runCommand, nixos-render-docs }:
 let
   eval = uv2nix.uv2nix {
-    src = null;
     useLock = false;
   };
   options = buildPackages.nixosOptionsDoc {
