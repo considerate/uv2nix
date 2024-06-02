@@ -22,37 +22,40 @@
           uv2nix = inputs.self.lib.uv2nixFor {
             inherit pkgs;
           };
+          docs = pkgs.callPackage ./docs { inherit uv2nix; };
         in
         {
-          packages = {
-            examples = {
-              init = uv2nix.uv2nix {
-                src = ./examples/init;
+          packages =
+            {
+              examples = {
+                init = uv2nix.uv2nix {
+                  src = ./examples/init;
+                };
+                edifice = uv2nix.uv2nix {
+                  src = ./examples/edifice;
+                  overlays = [
+                    (final: prev: {
+                      pyedifice = prev.pyedifice.overrideAttrs (old: {
+                        nativeBuildInputs = old.nativeBuildInputs ++ [
+                          final.poetry-core
+                        ];
+                      });
+                      qasync = prev.qasync.overrideAttrs (old: {
+                        nativeBuildInputs = old.nativeBuildInputs ++ [
+                          final.poetry-core
+                        ];
+                      });
+                      typing-extensions = prev.typing-extensions.overrideAttrs (old: {
+                        nativeBuildInputs = old.nativeBuildInputs ++ [
+                          final.flit-core
+                        ];
+                      });
+                    })
+                  ];
+                };
               };
-              edifice = uv2nix.uv2nix {
-                src = ./examples/edifice;
-                overlays = [
-                  (final: prev: {
-                    pyedifice = prev.pyedifice.overrideAttrs (old: {
-                      nativeBuildInputs = old.nativeBuildInputs ++ [
-                        final.poetry-core
-                      ];
-                    });
-                    qasync = prev.qasync.overrideAttrs (old: {
-                      nativeBuildInputs = old.nativeBuildInputs ++ [
-                        final.poetry-core
-                      ];
-                    });
-                    typing-extensions = prev.typing-extensions.overrideAttrs (old: {
-                      nativeBuildInputs = old.nativeBuildInputs ++ [
-                        final.flit-core
-                      ];
-                    });
-                  })
-                ];
-              };
+              inherit (docs) docs manpages;
             };
-          };
         };
     in
     inputs.mkflake.lib.mkflake {

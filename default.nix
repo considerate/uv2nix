@@ -84,9 +84,11 @@ let
     {
       options.name = lib.mkOption {
         type = lib.types.str;
+        example = ''wheel'';
       };
       options.version = lib.mkOption {
         type = lib.types.str;
+        example = ''2.6.12'';
       };
       options.src = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
@@ -121,6 +123,7 @@ let
       };
       options.package = lib.mkOption {
         type = lib.types.package;
+        defaultText = ''python.pkgs.''${name}'';
         default = python.pkgs.${config.name};
       };
     };
