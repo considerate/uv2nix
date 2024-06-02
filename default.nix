@@ -10,17 +10,22 @@ in
 , pypa ? (import pyproject-nix-src { inherit lib; }).lib.pypa
 }:
 let
-  build-package = { python }: { name, version, src, format, dependencies, ... }:
-    python.pkgs.buildPythonPackage {
+  build-package = { pythonPackages }: { name, version, src, format, dependencies, ... }:
+    pythonPackages.buildPythonPackage {
       pname = name;
       version = version;
       src = src;
       format = format;
-      propagatedBuildInputs = map (dep: [ python.pkgs.${dep.name} ]) dependencies;
+      propagatedBuildInputs = map
+        (dep:
+          pythonPackages.${ dep.name}
+            or(builtins.warn "Missing dependency ${dep.name} for ${name}" null)
+        )
+        dependencies;
     };
 
   sdistModule = { config, ... }: {
-    options.url = lib.mkOption {
+    options. url = lib.mkOption {
       type = lib.types.str;
     };
     options.hash = lib.mkOption {
@@ -126,6 +131,13 @@ let
         defaultText = ''python.pkgs.''${name}'';
         default = python.pkgs.${config.name};
       };
+      options.env = lib.mkOption {
+        type = lib.types.package;
+        defaultText = ''(python.buildEnv.override {extraLibs = [package]}).env'';
+        default = (python.buildEnv.override {
+          extraLibs = [ config.package ];
+        }).env;
+      };
     };
   lockedDistributions = { uvLock }:
     {
@@ -156,7 +168,8 @@ let
           ({ config, ... }:
             let
               allOverlays = [
-                (final: prev: lib.mapAttrs (_: d: build-package { inherit python; } d) config.distributions)
+                (final: prev:
+                  lib.mapAttrs (_: d: build-package { pythonPackages = final; } d) config.distributions)
               ] ++ overlays;
               py = python.override {
                 packageOverrides = lib.foldr lib.composeExtensions (_final: _prev: { }) allOverlays;
