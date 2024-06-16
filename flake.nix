@@ -64,6 +64,7 @@
                         ];
                       });
                     })
+                    (import ./examples/edifice/overlay.nix)
                   ];
                 };
               };
