@@ -3,8 +3,8 @@ name = "init-project"
 version = "0.0.1"
 requires-python = ">=3.10"
 dependencies = [
-  "numpy",
-  "torch",
+  "numpy==1.26.4",
+  "meson-python>=0.15.0,<0.16.0", # required to build numpy
   "xlsxwriter",
 ]
 
