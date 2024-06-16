@@ -9,7 +9,7 @@ sdist = { path = "." }
 
 [[distribution.dependencies]]
 name = "pyedifice"
-version = "0.6.2"
+version = "0.7.4"
 source = "registry+https://pypi.org/simple"
 
 [[distribution.dependencies]]
@@ -19,10 +19,10 @@ source = "registry+https://pypi.org/simple"
 
 [[distribution]]
 name = "pyedifice"
-version = "0.6.2"
+version = "0.7.4"
 source = "registry+https://pypi.org/simple"
-sdist = { url = "https://files.pythonhosted.org/packages/4a/b2/31a9616191498a0f3431a5a55a970f2e5d87d3f92906da2bf9e35c77a68d/pyedifice-0.6.2.tar.gz", hash = "sha256:0b39367495854298bcbbdfeee821a8196b1cda5680521a231173e1987adfaf24", size = 359910 }
-wheels = [{ url = "https://files.pythonhosted.org/packages/70/c8/053639589025fd4140cfa33be2d1c0dca52754a565841ff4cb110110bcec/pyedifice-0.6.2-py3-none-any.whl", hash = "sha256:df133bae2f4e3bfd56d5d7803ad2ab4129d0daf1386305720070fa393ae9a2ba", size = 832060 }]
+sdist = { url = "https://files.pythonhosted.org/packages/3d/e2/a60d1e21ae4a23b47d9ff29fe6b45fb1757a26a83ab7e5b6173669b03e09/pyedifice-0.7.4.tar.gz", hash = "sha256:512900e97941aab6cb2e6fbb85e9e854ac8071bdef0095a31190e4c64754e5ca", size = 361382 }
+wheels = [{ url = "https://files.pythonhosted.org/packages/56/1b/87076622acb9e5230ee792babd439d63eec19ce65d2886740c30edfea307/pyedifice-0.7.4-py3-none-any.whl", hash = "sha256:0380fa111a132f9001d67acd721775572536c5f07a2b052b84b7d404b24ba571", size = 835507 }]
 
 [[distribution.dependencies]]
 name = "qasync"
@@ -31,7 +31,7 @@ source = "registry+https://pypi.org/simple"
 
 [[distribution.dependencies]]
 name = "typing-extensions"
-version = "4.12.0"
+version = "4.12.2"
 source = "registry+https://pypi.org/simple"
 
 [[distribution]]
@@ -117,7 +117,7 @@ wheels = [
 
 [[distribution]]
 name = "typing-extensions"
-version = "4.12.0"
+version = "4.12.2"
 source = "registry+https://pypi.org/simple"
-sdist = { url = "https://files.pythonhosted.org/packages/ce/6a/aa0a40b0889ec2eb81a02ee0daa6a34c6697a605cf62e6e857eead9e4f85/typing_extensions-4.12.0.tar.gz", hash = "sha256:8cbcdc8606ebcb0d95453ad7dc5065e6237b6aa230a31e81d0f440c30fed5fd8", size = 84291 }
-wheels = [{ url = "https://files.pythonhosted.org/packages/e1/4d/d612de852a0bc64a64418e1cef25fe1914c5b1611e34cc271ed7e36174c8/typing_extensions-4.12.0-py3-none-any.whl", hash = "sha256:b349c66bea9016ac22978d800cfff206d5f9816951f12a7d0ec5578b0a819594", size = 37104 }]
+sdist = { url = "https://files.pythonhosted.org/packages/df/db/f35a00659bc03fec321ba8bce9420de607a1d37f8342eee1863174c69557/typing_extensions-4.12.2.tar.gz", hash = "sha256:1a7ead55c7e559dd4dee8856e3a88b41225abfe1ce8df57b7c13915fe121ffb8", size = 85321 }
+wheels = [{ url = "https://files.pythonhosted.org/packages/26/9f/ad63fc0248c5379346306f8668cda6e2e2e9c95e01216d2b8ffd9ff037d0/typing_extensions-4.12.2-py3-none-any.whl", hash = "sha256:04e5ca0351e0f3f85c6853954072df659d0d13fac324d0072316b67d7794700d", size = 37438 }]
