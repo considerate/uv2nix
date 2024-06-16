@@ -10,7 +10,35 @@ in
 , pypa ? (import pyproject-nix-src { inherit lib; }).lib.pypa
 }:
 let
-  build-package = { pythonPackages }: { name, version, src, format, dependencies, ... }:
+  build-package =
+    { pythonPackages }: { name
+                        , version
+                        , preferWheel
+                        , compatible-wheels
+                        , sdist
+                        , dependencies
+                        , extraDependencies
+                        , ...
+                        }:
+    let
+      fetch-sdist = { url, hash, size }: builtins.fetchurl {
+        inherit url;
+        sha256 = hash;
+      };
+      fetch-wheel = { url, hash, size }: builtins.fetchurl {
+        inherit url;
+        sha256 = hash;
+      };
+      useWheel = preferWheel || sdist == null;
+      src-format =
+        if useWheel && builtins.length compatible-wheels > 0
+        then { src = fetch-wheel (builtins.head compatible-wheels); format = "wheel"; }
+        else if sdist != null
+        then { src = fetch-sdist sdist; format = "pyproject"; }
+        else { src = null; format = "pyproject"; }
+      ;
+      inherit (src-format) src format;
+    in
     pythonPackages.buildPythonPackage {
       pname = name;
       version = version;
@@ -18,14 +46,18 @@ let
       format = format;
       propagatedBuildInputs = map
         (dep:
-          pythonPackages.${ dep.name}
+          pythonPackages.${dep.name}
             or(builtins.warn "Missing dependency ${dep.name} for ${name}" null)
         )
-        dependencies;
+        dependencies ++ map
+        (dep:
+          pythonPackages.${dep}
+            or(builtins.warn "Missing dependency ${dep} for ${name}" null))
+        extraDependencies;
     };
 
-  sdistModule = { config, ... }: {
-    options. url = lib.mkOption {
+  urlSdist = { config, ... }: {
+    options.url = lib.mkOption {
       type = lib.types.str;
     };
     options.hash = lib.mkOption {
@@ -33,6 +65,11 @@ let
     };
     options.size = lib.mkOption {
       type = lib.types.int;
+    };
+  };
+  pathSdist = { config, ... }: {
+    options.path = lib.mkOption {
+      type = lib.types.str;
     };
   };
   wheelModule = { config, ... }: {
@@ -56,6 +93,10 @@ let
     options.source = lib.mkOption {
       type = lib.types.str;
     };
+    options.marker = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+    };
   };
   distributionModule = { preferWheels, pkgs, python }: { config, ... }:
     let
@@ -67,23 +108,6 @@ let
           compatible = pypa.selectWheels python.stdenv.targetPlatform python (map (fileEntry: pypa.parseWheelFileName fileEntry.url) config.wheels);
         in
         map (wheel: wheelFilesByFileName.${wheel.filename}) compatible;
-      fetch-sdist = { url, hash, size }: builtins.fetchurl {
-        inherit url;
-        sha256 = hash;
-      };
-      fetch-wheel = { url, hash, size }: builtins.fetchurl {
-        inherit url;
-        sha256 = hash;
-      };
-      useWheel = config.preferWheel || config.sdist == null;
-      src-format =
-        if useWheel && builtins.length config.compatible-wheels > 0
-        then { src = fetch-wheel (builtins.head config.compatible-wheels); format = "wheel"; }
-        else if config.sdist != null
-        then { src = fetch-sdist config.sdist; format = "pyproject"; }
-        else { src = null; format = "pyproject"; }
-      ;
-      inherit (src-format) src format;
     in
 
     {
@@ -95,16 +119,8 @@ let
         type = lib.types.str;
         example = ''2.6.12'';
       };
-      options.src = lib.mkOption {
-        type = lib.types.nullOr lib.types.path;
-        default = src;
-      };
       options.source = lib.mkOption {
         type = lib.types.str;
-      };
-      options.format = lib.mkOption {
-        type = lib.types.str;
-        default = format;
       };
       options.compatible-wheels = lib.mkOption {
         type = lib.types.listOf (lib.types.submodule wheelModule);
@@ -118,37 +134,56 @@ let
         type = lib.types.listOf (lib.types.submodule dependencyModule);
         default = [ ];
       };
+      options.extraDependencies = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+      };
+      # NOTE: evalModules doesn't really support sum types of submodules.
+      # This hacks a "sum type" by having two nullable fields
       options.sdist = lib.mkOption {
-        type = lib.types.nullOr (lib.types.submodule sdistModule);
+        type = lib.types.nullOr (lib.types.submodule urlSdist);
+        default = null;
+      };
+      options.pathSdist = lib.mkOption {
+        type = lib.types.nullOr (lib.types.submodule pathSdist);
         default = null;
       };
       options.wheels = lib.mkOption {
         type = lib.types.listOf (lib.types.submodule wheelModule);
         default = [ ];
       };
-      options.package = lib.mkOption {
-        type = lib.types.package;
-        defaultText = ''python.pkgs.''${name}'';
-        default = python.pkgs.${config.name};
-      };
-      options.env = lib.mkOption {
-        type = lib.types.package;
-        defaultText = ''(python.buildEnv.override {extraLibs = [package]}).env'';
-        default = (python.buildEnv.override {
-          extraLibs = [ config.package ];
-        }).env;
-      };
+      # options.package = lib.mkOption {
+      #   type = lib.types.package;
+      #   defaultText = ''python.pkgs.''${name}'';
+      #   default = python.pkgs.${config.name};
+      # };
+      # options.env = lib.mkOption {
+      #   type = lib.types.package;
+      #   defaultText = ''(python.buildEnv.override {extraLibs = [package]}).env'';
+      #   default = (python.buildEnv.override {
+      #     extraLibs = [ config.package ];
+      #     ignoreCollisions = true;
+      #   }).env;
+      # };
     };
   lockedDistributions = { uvLock }:
     {
       config.distributions = builtins.listToAttrs (map
-        (d: {
-          name = d.name;
-          value =
-            if d ? wheel then
-              builtins.removeAttrs d [ "wheel" ] // { wheels = d.wheel; }
-            else d;
-        })
+        (d:
+          let
+            isPathSdist = d ? sdist.path;
+            isUrlSdist = d ? sdist.url;
+            hasWheels = d ? wheel;
+          in
+          {
+            name = d.name;
+            value =
+              builtins.removeAttrs d [ "wheel" "sdist" ] // lib.listToAttrs (
+                lib.optional hasWheels { name = "wheels"; value = d.wheel; }
+                ++ lib.optional isPathSdist { name = "pathSdist"; value = d.sdist; }
+                ++ lib.optional isUrlSdist { name = "sdist"; value = d.sdist; }
+              );
+          })
         uvLock.distribution
       );
     };
@@ -199,8 +234,11 @@ let
           ++ modules
         ;
       in
-      lib.evalModules {
-        modules = allModules;
+      lib.evalModules
+        {
+          modules = allModules;
+        } // {
+        inherit uvLock;
       };
 in
 {
