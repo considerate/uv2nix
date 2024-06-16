@@ -223,11 +223,14 @@ let
               options.devShells =
                 let
                   shellFor = name: distribution:
-                    let deps = map (dep: dep.name) distribution.dependencies ++ distribution.extraDependencies;
+                    let
+                      deps = map (dep: dep.name) distribution.dependencies ++ distribution.extraDependencies;
+                      env = (config.python.buildEnv.override {
+                        extraLibs = map (dep: config.python.pkgs.${dep}) deps;
+                        ignoreCollisions = true;
+                      }).env;
                     in
-                    (config.python.buildEnv.override {
-                      extraLibs = map (dep: [ config.python.pkgs.${dep.name} ]) deps;
-                    }).env;
+                    env;
                 in
                 lib.mkOption {
                   type = lib.types.lazyAttrsOf lib.types.package;
