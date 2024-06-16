@@ -25,6 +25,14 @@
           docs = pkgs.callPackage ./docs { inherit uv2nix; };
         in
         {
+          devShells = {
+            default = pkgs.mkShell {
+              name = "uv2nix-dev-shell";
+              packages = [
+                pkgs.uv
+              ];
+            };
+          };
           packages =
             {
               examples = {
@@ -33,6 +41,11 @@
                 };
                 edifice = uv2nix.uv2nix {
                   src = ./examples/edifice;
+                  modules = [
+                    {
+                      distributions.pyedifice.extraDependencies = [ "pyside6" ];
+                    }
+                  ];
                   overlays = [
                     (final: prev: {
                       pyedifice = prev.pyedifice.overrideAttrs (old: {
