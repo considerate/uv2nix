@@ -1,0 +1,12 @@
+[project]
+name = "init-project"
+version = "0.0.1"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "torch",
+  "xlsxwriter",
+]
+
+[tool.uv.workspace]
+members = []
