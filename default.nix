@@ -53,6 +53,10 @@ let
             or(builtins.warn "Missing dependency ${dep} for ${name}" null)
         )
         deps;
+      nativeBuildInputs = [ pkgs.autoPatchelfHook ] ++ lib.optionals (format == "wheel") [
+        pythonPackages.wheelUnpackHook
+        pythonPackages.pypaInstallHook
+      ];
     };
 
   urlSdistModule = { config, ... }: {
