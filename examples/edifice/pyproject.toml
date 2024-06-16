@@ -1,0 +1,11 @@
+[project]
+name = "edifice-project"
+version = "0.0.1"
+requires-python = ">=3.10"
+dependencies = [
+  "pyedifice",
+  "pyside6",
+]
+
+[tool.uv.workspace]
+members = []
