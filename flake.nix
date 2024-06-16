@@ -38,6 +38,40 @@
               examples = {
                 init = uv2nix.uv2nix {
                   src = ./examples/init;
+                  overlays = [
+                    (final: prev: {
+                      filelock = prev.filelock.overrideAttrs (old: {
+                        nativeBuildInputs = old.nativeBuildInputs ++ [
+                          final.hatchling
+                        ];
+                      });
+                      fsspec = prev.fsspec.overrideAttrs (old: {
+                        nativeBuildInputs = old.nativeBuildInputs ++ [
+                          final.hatchling
+                        ];
+                      });
+                      markupsafe = prev.markupsafe.overrideAttrs (old: {
+                        nativeBuildInputs = old.nativeBuildInputs ++ [
+                          final.setuptools
+                        ];
+                      });
+                      mpmath = prev.mpmath.overrideAttrs (old: {
+                        nativeBuildInputs = old.nativeBuildInputs ++ [
+                          final.setuptools
+                        ];
+                      });
+                      networkx = prev.networkx.overrideAttrs (old: {
+                        nativeBuildInputs = old.nativeBuildInputs ++ [
+                          final.setuptools
+                        ];
+                      });
+                      typing-extensions = prev.typing-extensions.overrideAttrs (old: {
+                        nativeBuildInputs = old.nativeBuildInputs ++ [
+                          final.flit-core
+                        ];
+                      });
+                    })
+                  ];
                 };
                 edifice = uv2nix.uv2nix {
                   src = ./examples/edifice;
