@@ -80,29 +80,15 @@
                   };
                   edifice = uv2nix.uv2nix {
                     src = ./examples/edifice;
+                    modules = [
+                      {
+                        distributions = {
+                          pyedifice.build-systems = [ "poetry-core" ];
+                          edifice-project.build-systems = [ "setuptools" ];
+                        };
+                      }
+                    ];
                     overlays = [
-                      (final: prev: {
-                        edifice-project = prev.edifice-project.overridePythonAttrs (old: {
-                          nativeBuildInputs = old.nativeBuildInputs ++ [
-                            final.setuptools
-                          ];
-                        });
-                        pyedifice = prev.pyedifice.overridePythonAttrs (old: {
-                          nativeBuildInputs = old.nativeBuildInputs ++ [
-                            final.poetry-core
-                          ];
-                        });
-                        qasync = prev.qasync.overridePythonAttrs (old: {
-                          nativeBuildInputs = old.nativeBuildInputs ++ [
-                            final.poetry-core
-                          ];
-                        });
-                        typing-extensions = prev.typing-extensions.overridePythonAttrs (old: {
-                          nativeBuildInputs = old.nativeBuildInputs ++ [
-                            final.flit-core
-                          ];
-                        });
-                      })
                       (import ./examples/edifice/overlay.nix)
                     ];
                   };
