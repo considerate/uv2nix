@@ -15,6 +15,7 @@ let
                         , version
                         , preferWheel
                         , compatible-wheels
+                        , pathSdist
                         , sdist
                         , dependencies
                         , extraDependencies
@@ -29,15 +30,17 @@ let
         inherit url;
         sha256 = hash;
       };
-      useWheel = preferWheel || sdist == null;
-      src-format =
-        if useWheel && builtins.length compatible-wheels > 0
-        then { src = fetch-wheel (builtins.head compatible-wheels); format = "wheel"; }
-        else if sdist != null
-        then { src = fetch-sdist sdist; format = "pyproject"; }
-        else { src = null; format = "pyproject"; }
+      wheel-sources = map (w: { src = fetch-wheel w; format = "wheel"; }) compatible-wheels;
+      path-sdists = lib.optional (pathSdist != null) { src = pathSdist.path; format = "pyproject"; };
+      url-sdists = lib.optional (sdist != null) { src = fetch-sdist sdist; format = "pyproject"; };
+      srcs =
+        if preferWheel
+        then wheel-sources ++ path-sdists ++ url-sdists
+        else path-sdists ++ url-sdists ++ wheel-sources
       ;
+      src-format = builtins.head srcs;
       inherit (src-format) src format;
+      deps = map (dep: dep.name) dependencies ++ extraDependencies;
     in
     pythonPackages.buildPythonPackage {
       pname = name;
@@ -46,17 +49,13 @@ let
       format = format;
       propagatedBuildInputs = map
         (dep:
-          pythonPackages.${dep.name}
-            or(builtins.warn "Missing dependency ${dep.name} for ${name}" null)
-        )
-        dependencies ++ map
-        (dep:
           pythonPackages.${dep}
-            or(builtins.warn "Missing dependency ${dep} for ${name}" null))
-        extraDependencies;
+            or(builtins.warn "Missing dependency ${dep} for ${name}" null)
+        )
+        deps;
     };
 
-  urlSdist = { config, ... }: {
+  urlSdistModule = { config, ... }: {
     options.url = lib.mkOption {
       type = lib.types.str;
     };
@@ -67,9 +66,9 @@ let
       type = lib.types.int;
     };
   };
-  pathSdist = { config, ... }: {
+  pathSdistModule = { config, ... }: {
     options.path = lib.mkOption {
-      type = lib.types.str;
+      type = lib.types.path;
     };
   };
   wheelModule = { config, ... }: {
@@ -141,48 +140,30 @@ let
       # NOTE: evalModules doesn't really support sum types of submodules.
       # This hacks a "sum type" by having two nullable fields
       options.sdist = lib.mkOption {
-        type = lib.types.nullOr (lib.types.submodule urlSdist);
+        type = lib.types.nullOr (lib.types.submodule urlSdistModule);
         default = null;
       };
       options.pathSdist = lib.mkOption {
-        type = lib.types.nullOr (lib.types.submodule pathSdist);
+        type = lib.types.nullOr (lib.types.submodule pathSdistModule);
         default = null;
       };
       options.wheels = lib.mkOption {
         type = lib.types.listOf (lib.types.submodule wheelModule);
         default = [ ];
       };
-      # options.package = lib.mkOption {
-      #   type = lib.types.package;
-      #   defaultText = ''python.pkgs.''${name}'';
-      #   default = python.pkgs.${config.name};
-      # };
-      # options.env = lib.mkOption {
-      #   type = lib.types.package;
-      #   defaultText = ''(python.buildEnv.override {extraLibs = [package]}).env'';
-      #   default = (python.buildEnv.override {
-      #     extraLibs = [ config.package ];
-      #     ignoreCollisions = true;
-      #   }).env;
-      # };
     };
-  lockedDistributions = { uvLock }:
+  lockedDistributions = { src, uvLock }:
     {
       config.distributions = builtins.listToAttrs (map
         (d:
-          let
-            isPathSdist = d ? sdist.path;
-            isUrlSdist = d ? sdist.url;
-            hasWheels = d ? wheel;
-          in
           {
             name = d.name;
             value =
-              builtins.removeAttrs d [ "wheel" "sdist" ] // lib.listToAttrs (
-                lib.optional hasWheels { name = "wheels"; value = d.wheel; }
-                ++ lib.optional isPathSdist { name = "pathSdist"; value = d.sdist; }
-                ++ lib.optional isUrlSdist { name = "sdist"; value = d.sdist; }
-              );
+              builtins.removeAttrs d [ "wheel" "sdist" ] // (lib.listToAttrs (
+                lib.optional (d ? wheel) { name = "wheels"; value = d.wheel; }
+                ++ lib.optional (d ? sdist.path) { name = "pathSdist"; value = { path = src + "/${d.sdist.path}"; }; }
+                ++ lib.optional (d ? sdist.url) { name = "sdist"; value = d.sdist; }
+              ));
           })
         uvLock.distribution
       );
@@ -227,10 +208,31 @@ let
                 }));
                 default = { };
               };
+              options.packages =
+                let
+                  packageFor = name: _: config.python.pkgs.${name};
+                in
+                lib.mkOption {
+                  type = lib.types.lazyAttrsOf lib.types.package;
+                  default = lib.mapAttrs packageFor config.distributions;
+                };
+              options.devShells =
+                let
+                  shellFor = name: distribution:
+                    let deps = map (dep: dep.name) distribution.dependencies ++ distribution.extraDependencies;
+                    in
+                    (config.python.buildEnv.override {
+                      extraLibs = map (dep: [ config.python.pkgs.${dep.name} ]) deps;
+                    }).env;
+                in
+                lib.mkOption {
+                  type = lib.types.lazyAttrsOf lib.types.package;
+                  default = lib.mapAttrs shellFor config.distributions;
+                };
             })
         ];
         allModules = baseModules
-          ++ lib.optional useLock (lockedDistributions { inherit uvLock; })
+          ++ lib.optional useLock (lockedDistributions { inherit src uvLock; })
           ++ modules
         ;
       in

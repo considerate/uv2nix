@@ -41,13 +41,13 @@
                 };
                 edifice = uv2nix.uv2nix {
                   src = ./examples/edifice;
-                  modules = [
-                    {
-                      distributions.pyedifice.extraDependencies = [ "pyside6" ];
-                    }
-                  ];
                   overlays = [
                     (final: prev: {
+                      edifice-project = prev.edifice-project.overrideAttrs (old: {
+                        nativeBuildInputs = old.nativeBuildInputs ++ [
+                          final.setuptools
+                        ];
+                      });
                       pyedifice = prev.pyedifice.overrideAttrs (old: {
                         nativeBuildInputs = old.nativeBuildInputs ++ [
                           final.poetry-core
