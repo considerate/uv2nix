@@ -220,6 +220,30 @@ let
                   type = lib.types.lazyAttrsOf lib.types.package;
                   default = lib.mapAttrs packageFor config.distributions;
                 };
+              options.apps =
+                let
+                  appFor = name: _: config.python.pkgs.toPythonApplication config.python.pkgs.${name};
+                in
+                lib.mkOption {
+                  type = lib.types.lazyAttrsOf lib.types.package;
+                  default = lib.mapAttrs appFor config.distributions;
+                };
+              options.shells =
+                let
+                  shellFor = name: distribution:
+                    let
+                      deps = map (dep: dep.name) distribution.dependencies ++ distribution.extraDependencies;
+                      env = config.python.buildEnv.override {
+                        extraLibs = map (dep: config.python.pkgs.${dep}) ([ name ] ++ deps);
+                        ignoreCollisions = true;
+                      };
+                    in
+                    env;
+                in
+                lib.mkOption {
+                  type = lib.types.lazyAttrsOf lib.types.package;
+                  default = lib.mapAttrs shellFor config.distributions;
+                };
               options.devShells =
                 let
                   shellFor = name: distribution:
