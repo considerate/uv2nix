@@ -35,73 +35,78 @@
           };
           packages =
             {
-              examples = {
-                init = uv2nix.uv2nix {
-                  src = ./examples/init;
-                  overlays = [
-                    (final: prev: {
-                      filelock = prev.filelock.overrideAttrs (old: {
-                        nativeBuildInputs = old.nativeBuildInputs ++ [
-                          final.hatchling
-                        ];
-                      });
-                      fsspec = prev.fsspec.overrideAttrs (old: {
-                        nativeBuildInputs = old.nativeBuildInputs ++ [
-                          final.hatchling
-                        ];
-                      });
-                      markupsafe = prev.markupsafe.overrideAttrs (old: {
-                        nativeBuildInputs = old.nativeBuildInputs ++ [
-                          final.setuptools
-                        ];
-                      });
-                      mpmath = prev.mpmath.overrideAttrs (old: {
-                        nativeBuildInputs = old.nativeBuildInputs ++ [
-                          final.setuptools
-                        ];
-                      });
-                      networkx = prev.networkx.overrideAttrs (old: {
-                        nativeBuildInputs = old.nativeBuildInputs ++ [
-                          final.setuptools
-                        ];
-                      });
-                      typing-extensions = prev.typing-extensions.overrideAttrs (old: {
-                        nativeBuildInputs = old.nativeBuildInputs ++ [
-                          final.flit-core
-                        ];
-                      });
-                    })
-                  ];
+              examples =
+                {
+                  init = uv2nix.uv2nix {
+                    src = ./examples/init;
+                    modules = [
+                      {
+                        distributions.torch.preferWheel = true;
+                        distributions.pyproject-metadata.build-systems = [ "flit-core" ];
+                        distributions.meson-python.build-systems = [ "meson" "ninja" ];
+                        distributions.numpy.build-systems = [ "meson" "ninja" "cython" ];
+                      }
+                    ];
+                    overlays = [
+                      (import ./overlays/cuda.nix { inherit pkgs; })
+                      (final: prev: {
+                        intel-openmp = prev.intel-openmp.overridePythonAttrs (old: {
+                          buildInputs = (old.buildInputs or [ ]) ++ [
+                            pkgs.llvmPackages.openmp
+                          ];
+                        });
+                        numpy = prev.numpy.overridePythonAttrs (old: {
+                          nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [
+                            final.meson-python
+                          ];
+                          buildInputs = (old.buildInputs or [ ]) ++ [
+                            pkgs.blas
+                            pkgs.openblas
+                          ];
+                        });
+                        tbb = prev.tbb.overridePythonAttrs (old: {
+                          buildInputs = (old.buildInputs or [ ]) ++ [
+                            pkgs.tbb_2021_11
+                            pkgs.hwloc.lib
+                          ];
+                        });
+                        nvidia-cudnn-cu12 = prev.nvidia-cudnn-cu12.overridePythonAttrs (old: {
+                          buildInputs = (old.buildInputs or [ ]) ++ [
+                            pkgs.zlib
+                          ];
+                        });
+                      })
+                    ];
+                  };
+                  edifice = uv2nix.uv2nix {
+                    src = ./examples/edifice;
+                    overlays = [
+                      (final: prev: {
+                        edifice-project = prev.edifice-project.overridePythonAttrs (old: {
+                          nativeBuildInputs = old.nativeBuildInputs ++ [
+                            final.setuptools
+                          ];
+                        });
+                        pyedifice = prev.pyedifice.overridePythonAttrs (old: {
+                          nativeBuildInputs = old.nativeBuildInputs ++ [
+                            final.poetry-core
+                          ];
+                        });
+                        qasync = prev.qasync.overridePythonAttrs (old: {
+                          nativeBuildInputs = old.nativeBuildInputs ++ [
+                            final.poetry-core
+                          ];
+                        });
+                        typing-extensions = prev.typing-extensions.overridePythonAttrs (old: {
+                          nativeBuildInputs = old.nativeBuildInputs ++ [
+                            final.flit-core
+                          ];
+                        });
+                      })
+                      (import ./examples/edifice/overlay.nix)
+                    ];
+                  };
                 };
-                edifice = uv2nix.uv2nix {
-                  src = ./examples/edifice;
-                  overlays = [
-                    (final: prev: {
-                      edifice-project = prev.edifice-project.overrideAttrs (old: {
-                        nativeBuildInputs = old.nativeBuildInputs ++ [
-                          final.setuptools
-                        ];
-                      });
-                      pyedifice = prev.pyedifice.overrideAttrs (old: {
-                        nativeBuildInputs = old.nativeBuildInputs ++ [
-                          final.poetry-core
-                        ];
-                      });
-                      qasync = prev.qasync.overrideAttrs (old: {
-                        nativeBuildInputs = old.nativeBuildInputs ++ [
-                          final.poetry-core
-                        ];
-                      });
-                      typing-extensions = prev.typing-extensions.overrideAttrs (old: {
-                        nativeBuildInputs = old.nativeBuildInputs ++ [
-                          final.flit-core
-                        ];
-                      });
-                    })
-                    (import ./examples/edifice/overlay.nix)
-                  ];
-                };
-              };
               inherit (docs) docs manpages;
             };
         };
