@@ -10,6 +10,7 @@ in
 , pypa ? (import pyproject-nix-src { inherit lib; }).lib.pypa
 }:
 let
+  build-systems-json = builtins.fromJSON (builtins.readFile ./build-systems.json);
   build-package =
     { pythonPackages }: { name
                         , version
@@ -19,6 +20,7 @@ let
                         , sdist
                         , dependencies
                         , extraDependencies
+                        , build-systems
                         , ...
                         }:
     let
@@ -41,6 +43,25 @@ let
       src-format = builtins.head srcs;
       inherit (src-format) src format;
       deps = map (dep: dep.name) dependencies ++ extraDependencies;
+
+      matching-build-system = system:
+        if lib.isString system
+        then true
+        else if lib.isAttrs system
+        then
+          let
+            matchesFrom = system.from == null || lib.versionAtLeast version system.from;
+            machesUntil = system.until == null || lib.versionOlder version system.until;
+          in
+          matchesFrom && machesUntil
+        else false
+      ;
+      matching-build-systems = lib.filter matching-build-system build-systems;
+      add-build-system = system:
+        if lib.isString system
+        then pythonPackages.${system}
+        else pythonPackages.${system.buildSystem};
+      buildSystems = map add-build-system matching-build-systems;
     in
     pythonPackages.buildPythonPackage {
       pname = name;
@@ -53,11 +74,25 @@ let
             or(builtins.warn "Missing dependency ${dep} for ${name}" null)
         )
         deps;
-      nativeBuildInputs = [ pkgs.autoPatchelfHook ] ++ lib.optionals (format == "wheel") [
+      nativeBuildInputs = buildSystems ++ [ pkgs.autoPatchelfHook ] ++ lib.optionals (format == "wheel") [
         pythonPackages.wheelUnpackHook
         pythonPackages.pypaInstallHook
       ];
     };
+
+  buildSystemModule = { config, ... }: {
+    options.buildSystem = lib.mkOption {
+      type = lib.types.str;
+    };
+    options.from = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+    };
+    options.until = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+    };
+  };
 
   urlSdistModule = { config, ... }: {
     options.url = lib.mkOption {
@@ -154,6 +189,10 @@ let
       options.wheels = lib.mkOption {
         type = lib.types.listOf (lib.types.submodule wheelModule);
         default = [ ];
+      };
+      options.build-systems = lib.mkOption {
+        type = lib.types.listOf (lib.types.either lib.types.str (lib.types.submodule buildSystemModule));
+        default = build-systems-json.${config.name} or [ ];
       };
     };
   lockedDistributions = { src, uvLock }:
