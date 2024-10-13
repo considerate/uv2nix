@@ -7,13 +7,14 @@ let
 in
 { pkgs
 , lib ? pkgs.lib
-, pypa ? (import pyproject-nix-src { inherit lib; }).lib.pypa
+, pyproject-nix ? (import pyproject-nix-src { inherit lib; }).lib
 }:
 let
+  inherit (pyproject-nix) pypa;
   inherit (pypa) normalizePackageName;
   build-systems-json = builtins.fromJSON (builtins.readFile ./build-systems.json);
   build-package =
-    { pythonPackages }:
+    { pythonPackages, marker-environment }:
     { name
     , version
     , preferWheel
@@ -56,7 +57,7 @@ let
       ;
       src-format = builtins.head srcs;
       inherit (src-format) src format;
-      match-marker = dep: dep.marker == null;
+      match-marker = dep: dep.marker == null || pyproject-nix.pep508.evalMarkers marker-environment (pyproject-nix.pep508.parseMarkers dep.marker);
       match-markers = builtins.filter match-marker;
       deps = map (dep: dep.name) (match-markers dependencies);
       check-groups = [ "dev" ];
@@ -321,9 +322,10 @@ let
           }
           ({ config, ... }:
             let
+              marker-environment = pyproject-nix.pep508.mkEnviron config.python;
               allOverlays = [
                 (final: prev:
-                  lib.mapAttrs (_: d: build-package { pythonPackages = final; } d) config.distributions)
+                  lib.mapAttrs (_: d: build-package { pythonPackages = final; inherit marker-environment; } d) config.distributions)
               ] ++ config.uv.overlays;
               py = python.override {
                 packageOverrides = lib.foldr lib.composeExtensions (_final: _prev: { }) allOverlays;

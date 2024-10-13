@@ -12,7 +12,7 @@
           uv2nixFor = { pkgs }:
             import ./default.nix {
               inherit pkgs;
-              pypa = inputs.pyproject-nix.lib.pypa;
+              pyproject-nix = inputs.pyproject-nix.lib;
             };
         };
       };
