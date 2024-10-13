@@ -12,17 +12,18 @@ in
 let
   build-systems-json = builtins.fromJSON (builtins.readFile ./build-systems.json);
   build-package =
-    { pythonPackages }: { name
-                        , version
-                        , preferWheel
-                        , compatible-wheels
-                        , pathSdist
-                        , sdist
-                        , dependencies
-                        , extraDependencies
-                        , build-systems
-                        , ...
-                        }:
+    { pythonPackages }:
+    { name
+    , version
+    , preferWheel
+    , compatible-wheels
+    , sdist
+    , dependencies
+    , extraDependencies
+    , build-systems
+    , source
+    , ...
+    }:
     let
       fetch-sdist = { url, hash, size }: builtins.fetchurl {
         inherit url;
@@ -32,17 +33,37 @@ let
         inherit url;
         sha256 = hash;
       };
-      wheel-sources = map (w: { src = fetch-wheel w; format = "wheel"; }) compatible-wheels;
-      path-sdists = lib.optional (pathSdist != null) { src = pathSdist.path; format = "pyproject"; };
-      url-sdists = lib.optional (sdist != null) { src = fetch-sdist sdist; format = "pyproject"; };
+      wheel-sources = map
+        (w: {
+          src = fetch-wheel w;
+          format = "wheel";
+        })
+        compatible-wheels;
+      sdists = lib.optional (sdist != null) {
+        src = if sdist ? url then fetch-sdist sdist.url else sdist.path;
+        format = "pyproject";
+      };
       srcs =
-        if preferWheel
-        then wheel-sources ++ path-sdists ++ url-sdists
-        else path-sdists ++ url-sdists ++ wheel-sources
+        if source ? editable then [{ src = source.editable; format = "pyproject"; }]
+        else
+          if preferWheel
+          then wheel-sources ++ sdists
+          else sdists ++ wheel-sources
       ;
       src-format = builtins.head srcs;
       inherit (src-format) src format;
       deps = map (dep: dep.name) dependencies ++ extraDependencies;
+
+
+      project-toml = builtins.fromTOML (builtins.readFile (pkgs.stdenv.mkDerivation {
+        name = "parse-${name}-build-systems";
+        src = src;
+        phases = [ "unpackPhase" "installPhase" ];
+        installPhase = ''
+          cp pyproject.toml $out
+        '';
+      }));
+      parsed-build-systems = lib.optionals (format == "pyproject") (project-toml.build-system.requires);
 
       matching-build-system = system:
         if lib.isString system
@@ -59,9 +80,12 @@ let
       matching-build-systems = lib.filter matching-build-system build-systems;
       add-build-system = system:
         if lib.isString system
-        then pythonPackages.${system}
-        else pythonPackages.${system.buildSystem};
-      buildSystems = map add-build-system matching-build-systems;
+        then system
+        else system.buildSystem;
+      buildSystems =
+        if builtins.length matching-build-systems > 0
+        then map add-build-system matching-build-systems
+        else map (buildSystem: builtins.elemAt (builtins.match "[[:space:]]*([a-zA-Z0-9-]+).*" buildSystem) 0) parsed-build-systems;
     in
     pythonPackages.buildPythonPackage {
       pname = name;
@@ -74,7 +98,7 @@ let
             or(builtins.warn "Missing dependency ${dep} for ${name}" null)
         )
         deps;
-      nativeBuildInputs = buildSystems ++ [ pkgs.autoPatchelfHook ] ++ lib.optionals (format == "wheel") [
+      nativeBuildInputs = map (b: pythonPackages.${b}) buildSystems ++ [ pkgs.autoPatchelfHook ] ++ lib.optionals (format == "wheel") [
         pythonPackages.wheelUnpackHook
         pythonPackages.pypaInstallHook
       ];
@@ -109,6 +133,12 @@ let
     options.path = lib.mkOption {
       type = lib.types.path;
     };
+    options.hash = lib.mkOption {
+      type = lib.types.str;
+    };
+    options.size = lib.mkOption {
+      type = lib.types.int;
+    };
   };
   wheelModule = { config, ... }: {
     options.url = lib.mkOption {
@@ -125,18 +155,12 @@ let
     options.name = lib.mkOption {
       type = lib.types.str;
     };
-    options.version = lib.mkOption {
-      type = lib.types.str;
-    };
-    options.source = lib.mkOption {
-      type = lib.types.str;
-    };
-    options.marker = lib.mkOption {
+    options.specifier = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
     };
   };
-  distributionModule = { preferWheels, pkgs, python }: { config, ... }:
+  packageModule = { preferWheels, pkgs, python }: { config, ... }:
     let
       # Only use wheels matching current python version and system architechture
       # https://github.com/nix-community/poetry2nix/blob/0a592572706db14e49202892318d3812061340a0/mk-poetry-dep.nix#L29
@@ -158,7 +182,14 @@ let
         example = ''2.6.12'';
       };
       options.source = lib.mkOption {
-        type = lib.types.str;
+        type = lib.types.attrTag {
+          editable = lib.mkOption {
+            type = lib.types.path;
+          };
+          registry = lib.mkOption {
+            type = lib.types.str;
+          };
+        };
       };
       options.compatible-wheels = lib.mkOption {
         type = lib.types.listOf (lib.types.submodule wheelModule);
@@ -172,18 +203,24 @@ let
         type = lib.types.listOf (lib.types.submodule dependencyModule);
         default = [ ];
       };
+      options.dev-dependencies = lib.mkOption {
+        type = lib.types.attrsOf (lib.types.listOf (lib.types.submodule dependencyModule));
+        default = { };
+      };
       options.extraDependencies = lib.mkOption {
         type = lib.types.listOf lib.types.str;
         default = [ ];
       };
-      # NOTE: evalModules doesn't really support sum types of submodules.
-      # This hacks a "sum type" by having two nullable fields
       options.sdist = lib.mkOption {
-        type = lib.types.nullOr (lib.types.submodule urlSdistModule);
-        default = null;
-      };
-      options.pathSdist = lib.mkOption {
-        type = lib.types.nullOr (lib.types.submodule pathSdistModule);
+        # TODO: extend the `attrTag` to allow defining the options directly under sdist somehow.
+        type = lib.types.nullOr (lib.types.attrTag {
+          url = lib.mkOption {
+            type = lib.types.submodule urlSdistModule;
+          };
+          path = lib.mkOption {
+            type = lib.types.submodule pathSdistModule;
+          };
+        });
         default = null;
       };
       options.wheels = lib.mkOption {
@@ -194,21 +231,40 @@ let
         type = lib.types.listOf (lib.types.either lib.types.str (lib.types.submodule buildSystemModule));
         default = build-systems-json.${config.name} or [ ];
       };
+      options.metadata = lib.mkOption {
+        type = lib.types.attrs;
+        default = { };
+      };
     };
-  lockedDistributions = { src, uvLock }:
+  lockedPackages = { src, uvLock }:
     {
       config.distributions = builtins.listToAttrs (map
         (d:
           {
             name = d.name;
             value =
-              builtins.removeAttrs d [ "wheel" "sdist" ] // (lib.listToAttrs (
-                lib.optional (d ? wheel) { name = "wheels"; value = d.wheel; }
-                ++ lib.optional (d ? sdist.path) { name = "pathSdist"; value = { path = src + "/${d.sdist.path}"; }; }
-                ++ lib.optional (d ? sdist.url) { name = "sdist"; value = d.sdist; }
+              builtins.removeAttrs d [ "sdist" ] // lib.optionalAttrs (d ? source.editable) {
+                source.editable = src + "/${d.source.editable}";
+              } // (lib.listToAttrs (
+                lib.optional (d ? sdist.url)
+                  {
+                    name = "sdist";
+                    value = {
+                      url = d.sdist;
+                    };
+                  }
+                ++ lib.optional (d ? sdist.path) {
+                  name = "sdist";
+                  value = {
+                    path = {
+                      # make path relative to `src`
+                      path = src + "/${d.sdist.path}";
+                    } // d.sdist;
+                  };
+                }
               ));
           })
-        uvLock.distribution
+        uvLock.package
       );
     };
   uv2nix =
@@ -245,7 +301,7 @@ let
                 default = false;
               };
               options.distributions = lib.mkOption {
-                type = lib.types.attrsOf (lib.types.submodule (distributionModule {
+                type = lib.types.attrsOf (lib.types.submodule (packageModule {
                   inherit pkgs;
                   inherit (config) preferWheels python;
                 }));
@@ -302,7 +358,7 @@ let
             })
         ];
         allModules = baseModules
-          ++ lib.optional useLock (lockedDistributions { inherit src uvLock; })
+          ++ lib.optional useLock (lockedPackages { inherit src uvLock; })
           ++ modules
         ;
       in
@@ -314,5 +370,5 @@ let
       };
 in
 {
-  inherit lockedDistributions uv2nix;
+  inherit lockedPackages uv2nix;
 }
