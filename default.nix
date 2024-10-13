@@ -10,6 +10,7 @@ in
 , pypa ? (import pyproject-nix-src { inherit lib; }).lib.pypa
 }:
 let
+  inherit (pypa) normalizePackageName;
   build-systems-json = builtins.fromJSON (builtins.readFile ./build-systems.json);
   build-package =
     { pythonPackages }:
@@ -19,9 +20,12 @@ let
     , compatible-wheels
     , sdist
     , dependencies
-    , extraDependencies
+    , extra-dependencies
+    , dev-dependencies
+    , extra-dev-dependencies
     , build-systems
     , source
+    , doCheck
     , ...
     }:
     let
@@ -52,7 +56,12 @@ let
       ;
       src-format = builtins.head srcs;
       inherit (src-format) src format;
-      deps = map (dep: dep.name) dependencies ++ extraDependencies;
+      match-marker = dep: dep.marker == null;
+      match-markers = builtins.filter match-marker;
+      deps = map (dep: dep.name) (match-markers dependencies);
+      check-groups = [ "dev" ];
+      check-dev = map (g: dev-dependencies.${g} or [ ]) check-groups;
+      dev-deps = builtins.concatMap (dev-group: map (dep: dep.name) (match-markers dev-group)) check-dev;
 
 
       project-toml = builtins.fromTOML (builtins.readFile (pkgs.stdenv.mkDerivation {
@@ -78,30 +87,45 @@ let
         else false
       ;
       matching-build-systems = lib.filter matching-build-system build-systems;
+      extractPackage = specifier: builtins.elemAt (builtins.match "[[:space:]]*([_a-zA-Z0-9-]+).*" specifier) 0;
       add-build-system = system:
         if lib.isString system
         then system
         else system.buildSystem;
       buildSystems =
-        if builtins.length matching-build-systems > 0
-        then map add-build-system matching-build-systems
-        else map (buildSystem: builtins.elemAt (builtins.match "[[:space:]]*([a-zA-Z0-9-]+).*" buildSystem) 0) parsed-build-systems;
+        if format == "wheel" then [ ]
+        else
+          map add-build-system matching-build-systems ++
+          map (buildSystem: normalizePackageName (extractPackage buildSystem)) parsed-build-systems;
+      deps-pkgs = map
+        (dep:
+          pythonPackages.${dep}
+            or(builtins.warn "Missing dependency ${dep} for ${name}" null)
+        )
+        deps;
+
+      dev-deps-pkgs = map
+        (dep:
+          pythonPackages.${dep}
+            or(builtins.warn "Missing dev-dependency ${dep} for ${name}" null)
+        )
+        dev-deps ++ builtins.concatMap (g: extra-dev-dependencies.${g} or [ ]) check-groups;
     in
     pythonPackages.buildPythonPackage {
       pname = name;
       version = version;
       src = src;
       format = format;
-      propagatedBuildInputs = map
-        (dep:
-          pythonPackages.${dep}
-            or(builtins.warn "Missing dependency ${dep} for ${name}" null)
-        )
-        deps;
-      nativeBuildInputs = map (b: pythonPackages.${b}) buildSystems ++ [ pkgs.autoPatchelfHook ] ++ lib.optionals (format == "wheel") [
-        pythonPackages.wheelUnpackHook
-        pythonPackages.pypaInstallHook
-      ];
+      inherit doCheck;
+      propagatedBuildInputs = deps-pkgs;
+      nativeBuildInputs =
+        map (b: pythonPackages.${b}) buildSystems
+        ++ dev-deps-pkgs
+        ++ lib.optionals (format == "wheel") [
+          pkgs.autoPatchelfHook
+          pythonPackages.wheelUnpackHook
+          pythonPackages.pypaInstallHook
+        ];
     };
 
   buildSystemModule = { config, ... }: {
@@ -159,6 +183,10 @@ let
       type = lib.types.nullOr lib.types.str;
       default = null;
     };
+    options.marker = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+    };
   };
   packageModule = { preferWheels, pkgs, python }: { config, ... }:
     let
@@ -195,6 +223,10 @@ let
         type = lib.types.listOf (lib.types.submodule wheelModule);
         default = compatible-wheels;
       };
+      options.doCheck = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+      };
       options.preferWheel = lib.mkOption {
         type = lib.types.bool;
         default = preferWheels;
@@ -203,13 +235,17 @@ let
         type = lib.types.listOf (lib.types.submodule dependencyModule);
         default = [ ];
       };
+      options.extra-dependencies = lib.mkOption {
+        type = lib.types.listOf lib.types.package;
+        default = [ ];
+      };
       options.dev-dependencies = lib.mkOption {
         type = lib.types.attrsOf (lib.types.listOf (lib.types.submodule dependencyModule));
         default = { };
       };
-      options.extraDependencies = lib.mkOption {
-        type = lib.types.listOf lib.types.str;
-        default = [ ];
+      options.extra-dev-dependencies = lib.mkOption {
+        type = lib.types.attrsOf (lib.types.listOf lib.types.package);
+        default = { };
       };
       options.sdist = lib.mkOption {
         # TODO: extend the `attrTag` to allow defining the options directly under sdist somehow.
@@ -275,30 +311,47 @@ let
     , modules ? [ ]
     , overlays ? [ ]
     , python ? pkgs.python3
+    , preferWheels ? false
     }:
       assert useLock -> src != null;
       let
         baseModules = [
-          { _module.args.pkgs = pkgs; }
+          {
+            _module.args.pkgs = pkgs;
+          }
           ({ config, ... }:
             let
               allOverlays = [
                 (final: prev:
                   lib.mapAttrs (_: d: build-package { pythonPackages = final; } d) config.distributions)
-              ] ++ overlays;
+              ] ++ config.uv.overlays;
               py = python.override {
                 packageOverrides = lib.foldr lib.composeExtensions (_final: _prev: { }) allOverlays;
                 self = py;
               };
             in
             {
+              config._module.args.python = config.python;
+              options.uv.overlays =
+                let
+                  overlayType = lib.mkOptionType {
+                    name = "overlay";
+                    description = "uv python package overlay";
+                    check = lib.isFunction;
+                    merge = lib.mergeOneOption;
+                  };
+                in
+                lib.mkOption {
+                  type = lib.types.listOf overlayType;
+                  default = overlays;
+                };
               options.python = lib.mkOption {
                 type = lib.types.package;
                 default = py;
               };
               options.preferWheels = lib.mkOption {
                 type = lib.types.bool;
-                default = false;
+                default = preferWheels;
               };
               options.distributions = lib.mkOption {
                 type = lib.types.attrsOf (lib.types.submodule (packageModule {
@@ -327,7 +380,7 @@ let
                 let
                   shellFor = name: distribution:
                     let
-                      deps = map (dep: dep.name) distribution.dependencies ++ distribution.extraDependencies;
+                      deps = map (dep: dep.name) distribution.dependencies;
                       env = config.python.buildEnv.override {
                         extraLibs = map (dep: config.python.pkgs.${dep}) ([ name ] ++ deps);
                         ignoreCollisions = true;
@@ -343,7 +396,7 @@ let
                 let
                   shellFor = name: distribution:
                     let
-                      deps = map (dep: dep.name) distribution.dependencies ++ distribution.extraDependencies;
+                      deps = map (dep: dep.name) distribution.dependencies;
                       env = (config.python.buildEnv.override {
                         extraLibs = map (dep: config.python.pkgs.${dep}) deps;
                         ignoreCollisions = true;
